@@ -30,7 +30,7 @@ fn main() -> anyhow::Result<()> {
     let cursor_hidden = window::CursorHider::new_hidden();
 
     let mut overlay = window::OverlayWindow::create(&event_loop)?;
-    let mut renderer = pollster::block_on(renderer::Renderer::new(&overlay.window))?;
+    let mut renderer = renderer::Renderer::new(overlay.size().0, overlay.size().1);
     let mut particles = particles::ParticleSystem::new();
 
     let mut last_frame = Instant::now();
