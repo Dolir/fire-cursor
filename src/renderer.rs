@@ -20,7 +20,6 @@ impl Instance {
 pub struct Renderer {
     width: u32,
     height: u32,
-    compact_buffer: Vec<u8>,
     was_empty: bool,
     dirty_rect: Option<(u32, u32, u32, u32)>, // min_x, min_y, max_x, max_y
 }
@@ -32,7 +31,6 @@ impl Renderer {
         Self {
             width,
             height,
-            compact_buffer: vec![0u8; (width as usize) * 4 * (height as usize)],
             was_empty: false,
             dirty_rect: None,
         }
@@ -46,7 +44,6 @@ impl Renderer {
         }
         self.width = width;
         self.height = height;
-        self.compact_buffer = vec![0u8; (width as usize) * 4 * (height as usize)];
         self.was_empty = false;
         self.dirty_rect = None;
     }
@@ -65,21 +62,23 @@ impl Renderer {
             self.was_empty = false;
         }
 
+        let compact_buffer = overlay.get_dib_pixels_mut(self.width, self.height)?;
+
         // Clear only the dirty rectangle from the previous frame.
         if let Some((min_x, min_y, max_x, max_y)) = self.dirty_rect {
             let row_bytes = (self.width as usize) * 4;
             let clear_width_bytes = ((max_x - min_x) as usize) * 4;
             for y in min_y..max_y {
                 let offset = (y as usize) * row_bytes + (min_x as usize) * 4;
-                self.compact_buffer[offset..offset + clear_width_bytes].fill(0);
+                compact_buffer[offset..offset + clear_width_bytes].fill(0);
             }
         } else if !self.was_empty {
-            self.compact_buffer.fill(0);
+            compact_buffer.fill(0);
         }
 
         if instances.is_empty() {
             self.dirty_rect = None;
-            return overlay.present_layered_bgra8_premul(self.width, self.height, &self.compact_buffer);
+            return overlay.present_layered();
         }
 
         let mut new_min_x = self.width;
@@ -158,20 +157,20 @@ impl Renderer {
                     
                     let pixel_idx = row_start + (x as usize) * 4;
                     
-                    let dst_b = self.compact_buffer[pixel_idx] as f32 / 255.0;
-                    let dst_g = self.compact_buffer[pixel_idx + 1] as f32 / 255.0;
-                    let dst_r = self.compact_buffer[pixel_idx + 2] as f32 / 255.0;
-                    let dst_a = self.compact_buffer[pixel_idx + 3] as f32 / 255.0;
+                    let dst_b = compact_buffer[pixel_idx] as f32 / 255.0;
+                    let dst_g = compact_buffer[pixel_idx + 1] as f32 / 255.0;
+                    let dst_r = compact_buffer[pixel_idx + 2] as f32 / 255.0;
+                    let dst_a = compact_buffer[pixel_idx + 3] as f32 / 255.0;
                     
                     let out_b = b + dst_b * (1.0 - a);
                     let out_g = g + dst_g * (1.0 - a);
                     let out_r = r + dst_r * (1.0 - a);
                     let out_a = a + dst_a * (1.0 - a);
                     
-                    self.compact_buffer[pixel_idx] = (out_b.clamp(0.0, 1.0) * 255.0) as u8;
-                    self.compact_buffer[pixel_idx + 1] = (out_g.clamp(0.0, 1.0) * 255.0) as u8;
-                    self.compact_buffer[pixel_idx + 2] = (out_r.clamp(0.0, 1.0) * 255.0) as u8;
-                    self.compact_buffer[pixel_idx + 3] = (out_a.clamp(0.0, 1.0) * 255.0) as u8;
+                    compact_buffer[pixel_idx] = (out_b.clamp(0.0, 1.0) * 255.0) as u8;
+                    compact_buffer[pixel_idx + 1] = (out_g.clamp(0.0, 1.0) * 255.0) as u8;
+                    compact_buffer[pixel_idx + 2] = (out_r.clamp(0.0, 1.0) * 255.0) as u8;
+                    compact_buffer[pixel_idx + 3] = (out_a.clamp(0.0, 1.0) * 255.0) as u8;
                 }
             }
         }
@@ -182,6 +181,6 @@ impl Renderer {
             self.dirty_rect = None;
         }
 
-        overlay.present_layered_bgra8_premul(self.width, self.height, &self.compact_buffer)
+        overlay.present_layered()
     }
 }

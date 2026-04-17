@@ -247,40 +247,32 @@ impl OverlayWindow {
         ))
     }
 
-    /// Present a BGRA8 premultiplied-alpha frame using a true layered window.
-    ///
-    /// This path avoids `wgpu` surface alpha limitations by letting Windows/DWM compose
-    /// our pixels directly via `UpdateLayeredWindow`.
-    pub fn present_layered_bgra8_premul(
-        &mut self,
-        width: u32,
-        height: u32,
-        pixels_bgra: &[u8],
-    ) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            pixels_bgra.len() == (width as usize) * (height as usize) * 4,
-            "pixel buffer length mismatch"
-        );
-
+    pub fn get_dib_pixels_mut(&mut self, width: u32, height: u32) -> anyhow::Result<&mut [u8]> {
         if self.layered.is_none() {
             self.layered = Some(LayeredPresenter::new()?);
         }
 
-        let hwnd = self.hwnd()?;
-
         let presenter = self.layered.as_mut().unwrap();
         presenter.ensure_size(width, height)?;
-        presenter.copy_pixels(pixels_bgra);
 
+        let len = (width as usize) * (height as usize) * 4;
+        // SAFETY: The DIB section allocates at least `len` bytes automatically.
+        Ok(unsafe { std::slice::from_raw_parts_mut(presenter.bits, len) })
+    }
+
+    pub fn present_layered(&mut self) -> anyhow::Result<()> {
+        let hwnd = self.hwnd()?;
         let (ox, oy) = self.origin;
+        
+        let presenter = self.layered.as_mut().context("layered presenter not initialized")?;
+
         let size = SIZE {
-            cx: width as i32,
-            cy: height as i32,
+            cx: presenter.width as i32,
+            cy: presenter.height as i32,
         };
         let dst_pos = POINT { x: ox, y: oy };
         let src_pos = POINT { x: 0, y: 0 };
 
-        // BlendFunction for per-pixel alpha.
         let blend = BLENDFUNCTION {
             BlendOp: AC_SRC_OVER as u8,
             BlendFlags: 0,
@@ -435,15 +427,6 @@ impl LayeredPresenter {
         self.height = height;
 
         Ok(())
-    }
-
-    fn copy_pixels(&mut self, pixels_bgra: &[u8]) {
-        let len = (self.width as usize) * (self.height as usize) * 4;
-        debug_assert_eq!(pixels_bgra.len(), len);
-        // SAFETY: Bits points to DIB section memory of at least len bytes.
-        unsafe {
-            std::ptr::copy_nonoverlapping(pixels_bgra.as_ptr(), self.bits, len);
-        }
     }
 
     fn destroy_bitmap(&mut self) {
